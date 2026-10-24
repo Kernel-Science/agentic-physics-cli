@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 — 2026-10-24
+
+- The package carries SECURITY.md, which the README links to.
+- Published from GitHub Actions through npm trusted publishing, with provenance: npm shows the commit and the
+  workflow run each version was built from.
+
 ## 0.1.0 — 2026-10-24
 
 First release.
