@@ -53,11 +53,13 @@ You need Node.js 20.10 or later (`node --version`).
 npm install -g agentic-physics
 ```
 
-You can also install it from a GitHub release, without npm's registry:
+You can also install it from a [GitHub release](https://github.com/Kernel-Science/agentic-physics-cli/releases), without npm's registry. Each release carries the package's tarball and its checksums. For example:
 
 ```bash
-npm install -g https://github.com/Kernel-Science/agentic-physics-cli/releases/download/v0.1.0/agentic-physics-0.1.0.tgz
+npm install -g https://github.com/Kernel-Science/agentic-physics-cli/releases/download/v0.1.1/agentic-physics-0.1.1.tgz
 ```
+
+Every version from 0.1.1 on is published from this repository's CI with [npm provenance](https://docs.npmjs.com/generating-provenance-statements): npm's page for the package names the commit and the workflow run it was built from.
 
 Check the install with:
 
@@ -375,9 +377,9 @@ node dist/src/bin.js --help
 The CLI has no runtime dependencies. It speaks the same HTTP API as the console's browser client, the VS Code extension and the desktop app. `AGENTIC_PHYSICS_URL=http://127.0.0.1:3000` points it at a local console.
 
 To release:
-1. Bump `version` in `package.json` and add a `CHANGELOG.md` entry.
-2. Run `npm publish`.
-3. Attach the `npm pack` tarball to a GitHub release tagged `v<version>`.
+1. Bump `version` in `package.json` and add a `CHANGELOG.md` entry, in a pull request.
+2. Once it is merged, publish a GitHub release tagged `v<version>`, with the `npm pack` tarball attached.
+3. `.github/workflows/publish.yml` publishes it to npm through trusted publishing, with provenance. No npm token is stored anywhere.
 
 ## License
 

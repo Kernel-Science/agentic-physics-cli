@@ -1,6 +1,6 @@
 {
   "name": "agentic-physics",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Command-line client for Agentic Physics: formalize physics in Lean 4, prove it with a kernel-checked proof, and talk to the agent — from a terminal or from a coding agent such as Claude Code.",
   "type": "module",
   "bin": {
@@ -11,6 +11,7 @@
     "skill",
     "README.md",
     "CHANGELOG.md",
+    "SECURITY.md",
     "LICENSE"
   ],
   "engines": {
