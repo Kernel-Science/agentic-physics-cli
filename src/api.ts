@@ -89,6 +89,12 @@ export class Api {
 }
 
 export function notSignedIn(auth: Auth): CliError {
+  if (auth.envTokenWithheld) {
+    return new CliError(
+      `AGENTIC_PHYSICS_TOKEN is not sent to ${auth.url}: nothing says that console issued it. If it did, set AGENTIC_PHYSICS_TOKEN_URL=${auth.url}.`,
+      EXIT.auth,
+    );
+  }
   if (auth.storedFor) {
     return new CliError(
       `You are signed in to ${auth.storedFor}, not ${auth.url}. Run \`agentic-physics login\` to sign in there.`,

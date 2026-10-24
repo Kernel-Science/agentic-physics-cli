@@ -1,9 +1,8 @@
-import { writeFile } from "node:fs/promises";
-
 import { Api, duration } from "../api.js";
 import { DOMAINS, domain, oneLine, positiveInt, printJson, seconds, str, type Command, type Io, type Parsed } from "../cli.js";
 import { resolveAuth } from "../config.js";
 import { CliError, EXIT, UsageError } from "../errors.js";
+import { requireLean, writeNewLeanFile } from "../files.js";
 import { hasSorry, readSource, splitStatement, theoremName } from "../lean.js";
 import { OUTCOME_EXIT, checkRunId, followRun, readFrame, runReport, settle } from "../runs.js";
 import type { ProofRunRow, RunFrame, RunSummary } from "../types.js";
@@ -27,7 +26,7 @@ async function finish(api: Api, runId: string, values: Parsed["values"], io: Io,
 
   const output = str(values.output);
   const proof = summary?.proof ?? frame.proof ?? undefined;
-  if (output && outcome === "proved" && proof) await writeFile(output, proof.endsWith("\n") ? proof : `${proof}\n`);
+  if (output && outcome === "proved" && proof) await writeNewLeanFile(output, proof);
 
   if (values.json) {
     printJson(io, {
@@ -87,7 +86,8 @@ Options:
   -d, --description TEXT
                       The physics in words: what the statement says, in a
                       physicist's terms. Strongly recommended — the prover
-                      searches the libraries with it.
+                      searches the libraries with it. \`-d -\` reads it from
+                      standard input (safest for LaTeX: no shell expansion).
   --domain D          ${DOMAINS.join(", ")}
                       (default: general)
   --title T           A name for the run (default: the theorem's name).
@@ -98,7 +98,8 @@ Options:
                       Default: neither; needed lemmas are proved on their
                       own as sub-runs, nothing is asked.
   ${WAIT_HELP.replace("WAIT", String(DEFAULT_WAIT))}
-  -o, --output F      Write the proof to F if the kernel accepts one.
+  -o, --output F      Write the proof to F, a new .lean file, if the kernel
+                      accepts one. An existing file is never overwritten.
   -q, --quiet         No progress lines on stderr.
   --json              Print the result as one JSON object.
 
@@ -107,6 +108,9 @@ cancelled); 5 still running when the wait ran out; 6 waiting for your
 answer; 3 not signed in; 1 any other failure.`,
   async run({ values, positionals }, io) {
     if (positionals.length > 1) throw new UsageError("Prove one file at a time.");
+    if (positionals[0] && positionals[0] !== "-") requireLean(positionals[0], "The theorem");
+    const output = str(values.output);
+    if (output) requireLean(output, "-o");
     const source = await readSource(positionals[0], str(values.theorem), io.stdin);
     const { theorem, imports } = splitStatement(source.text);
     if (!theorem) throw new UsageError(`${source.label} holds no theorem.`);
@@ -117,7 +121,11 @@ answer; 3 not signed in; 1 any other failure.`,
     if (mode !== undefined && mode !== "interactive" && mode !== "automated") {
       throw new UsageError("--mode is interactive or automated.");
     }
-    const description = str(values.description)?.trim() || undefined;
+    let description = str(values.description)?.trim() || undefined;
+    if (description === "-") {
+      if (source.label === "<stdin>") throw new UsageError("Standard input already holds the theorem; give -d the text, or the theorem as a file.");
+      description = (await readSource("-", undefined, io.stdin)).text.trim() || undefined;
+    }
     const waitSeconds = seconds(values.wait, DEFAULT_WAIT);
     if (!description) {
       io.err("Note: no --description. The prover searches Physlib and Mathlib with the physics in words; without it, it starts from nothing.");
@@ -158,7 +166,8 @@ waiting for your answer (with the question), or still running.
 
 Options:
   ${WAIT_HELP.replace("WAIT", "0: just look")}
-  -o, --output F      Write the proof to F if the kernel accepted one.
+  -o, --output F      Write the proof to F, a new .lean file, if the kernel
+                      accepted one. An existing file is never overwritten.
   -q, --quiet         No progress lines on stderr.
   --json              Print the result as one JSON object.
 
@@ -166,6 +175,8 @@ Exit codes as for \`prove\`: 0 proved, 4 not proved, 5 still running,
 6 waiting for your answer.`,
   async run({ values, positionals }, io) {
     const runId = checkRunId(positionals[0]);
+    const output = str(values.output);
+    if (output) requireLean(output, "-o");
     const api = new Api(resolveAuth(io.env));
     return finish(api, runId, values, io, seconds(values.wait, 0));
   },
@@ -246,18 +257,20 @@ export const proof: Command = {
   usage: `Usage: agentic-physics proof RUN_ID [-o FILE]
 
 Prints the Lean source the kernel accepted for this run, or writes it to
-FILE. Exits 4 when the run has no accepted proof: nothing the kernel
-rejected is ever handed out.`,
+FILE (a new .lean file; an existing one is never overwritten). Exits 4
+when the run has no accepted proof: nothing the kernel rejected is ever
+handed out.`,
   async run({ values, positionals }, io) {
     const runId = checkRunId(positionals[0]);
+    const output = str(values.output);
+    if (output) requireLean(output, "-o");
     const summary = await new Api(resolveAuth(io.env)).json<RunSummary>(`/api/agentic/runs/${runId}`);
     if (!summary.verified || !summary.proof) {
       io.err(`${runId} has no kernel-accepted proof (status: ${summary.status}).`);
       return EXIT.negative;
     }
-    const output = str(values.output);
     if (output) {
-      await writeFile(output, summary.proof.endsWith("\n") ? summary.proof : `${summary.proof}\n`);
+      await writeNewLeanFile(output, summary.proof);
       io.err(`Written to ${output}.`);
     } else {
       io.out(summary.proof.trimEnd());

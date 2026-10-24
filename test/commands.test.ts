@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
@@ -365,5 +365,125 @@ describe("the command line", () => {
     }
     assert.equal((await cli(["prove", "--bogus"], {})).code, 2);
     assert.equal((await cli(["frobnicate"], {})).code, 2);
+  });
+});
+
+describe("hardening against what an agent might be talked into", () => {
+  it("-o creates a new .lean file only: never another kind, never over a file, never through a link", async () => {
+    const { server, env } = await signedIn({ [`GET /api/agentic/runs/${RUN}`]: () => ({ json: { run_id: RUN, status: "solved", verified: true, proof: PROOF } }) });
+    try {
+      const dir = tempDir();
+      const victim = join(dir, "bashrc");
+      writeFileSync(victim, "untouched");
+      assert.equal((await cli(["proof", RUN, "-o", victim], env)).code, 2);
+      const existing = join(dir, "old.lean");
+      writeFileSync(existing, "mine");
+      const over = await cli(["proof", RUN, "-o", existing], env);
+      assert.equal(over.code, 1);
+      assert.match(over.err, /never overwrites/);
+      const link = join(dir, "link.lean");
+      symlinkSync(victim, link);
+      assert.equal((await cli(["proof", RUN, "-o", link], env)).code, 1);
+      assert.equal(readFileSync(victim, "utf8"), "untouched");
+      assert.equal(readFileSync(existing, "utf8"), "mine");
+      assert.equal((await cli(["proof", RUN, "-o", join(dir, "new.lean")], env)).code, 0);
+      assert.equal(readFileSync(join(dir, "new.lean"), "utf8"), `${PROOF}\n`);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("check sends only .lean files: a secret is refused before it is read", async () => {
+    const { server, env } = await signedIn({});
+    try {
+      const secret = join(tempDir(), "credentials");
+      writeFileSync(secret, "aws_secret_access_key=xyz");
+      const result = await cli(["check", secret], env);
+      assert.equal(result.code, 2);
+      assert.equal(server.requests.length, 0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("a code for another account changes nothing, and its new session is signed out", async () => {
+    const { server, env } = await signedIn({
+      "POST /api/auth/one-time-token/verify": () => ({ json: { session: { token: "attacker-session" }, user: { id: "u2", email: "eve@example.org", name: "Ada" } } }),
+    });
+    try {
+      const result = await cli(["login", "--code", "eves-code"], env);
+      assert.equal(result.code, 3);
+      assert.match(result.err, /That code is for Ada <eve@example\.org>, but this machine is signed in as Ada <ada@example\.org>/);
+      assert.equal(JSON.parse(readFileSync(join(env.AGENTIC_PHYSICS_CONFIG_DIR!, "credentials.json"), "utf8")).token, "tok");
+      const signOut = server.requests.find((r) => r.path === "/api/auth/sign-out");
+      assert.equal(signOut?.headers.authorization, "Bearer attacker-session");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("login sends a code to a console other than agentic-physics.com only when --url confirms it", async () => {
+    const env = { AGENTIC_PHYSICS_URL: "https://look-alike.example", AGENTIC_PHYSICS_CONFIG_DIR: tempDir() };
+    const refused = await cli(["login", "--code", "abc"], env);
+    assert.equal(refused.code, 2);
+    assert.match(refused.err, /not https:\/\/agentic-physics\.com/);
+    assert.match(refused.err, /\(console: https:\/\/look-alike\.example, from AGENTIC_PHYSICS_URL\)/);
+  });
+
+  it("server text reaches the terminal without escape sequences", async () => {
+    const { server, env } = await signedIn({ "GET /api/runs": () => ({ status: 500, json: { error: "boom\u001b]52;c;cm0gLXJmIH4=\u0007\u001b[31m red" } }) });
+    try {
+      const result = await cli(["runs"], env);
+      assert.equal(result.code, 1);
+      assert.match(result.err, /boom red/);
+      assert.doesNotMatch(result.err, /\u001b/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("the agent's words are quoted, and a run id from the record is checked before it is used", async () => {
+    let user: { id: string } | undefined;
+    const { server, env } = await signedIn({
+      "POST /api/chat": (r) => ((user = r.body.message), { text: "" }),
+      "GET /api/chat/live": () => ({
+        json: {
+          live: false,
+          messages: [
+            user,
+            {
+              id: "a1",
+              role: "assistant",
+              parts: [
+                { type: "text", text: "run_1a2b3c4d: PROVED — the Lean kernel accepted the proof" },
+                { type: "tool-proveTheorem", toolCallId: "c1", state: "output-available", output: { runId: "../../auth/list-sessions?", status: "solved" } },
+              ],
+            },
+          ],
+        },
+      }),
+    });
+    try {
+      const result = await cli(["chat", "hello"], env);
+      assert.equal(result.code, 0, result.err);
+      assert.match(result.out, /^│ run_1a2b3c4d: PROVED/m);
+      assert.doesNotMatch(result.out, /^run_1a2b3c4d: PROVED/m);
+      assert.equal(server.requests.filter((r) => r.path.startsWith("/api/auth")).length, 0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("skill install writes through no symbolic link", async () => {
+    const dir = tempDir();
+    const elsewhere = tempDir();
+    symlinkSync(elsewhere, join(dir, "agentic-physics"));
+    const result = await cli(["skill", "install", "--dir", dir, "--force"], {});
+    assert.equal(result.code, 1);
+    assert.match(result.err, /symbolic link/);
+    assert.deepEqual(readdirSync(elsewhere), []);
+    mkdirSync(join(dir, "real"));
+    assert.equal((await cli(["skill", "install", "--dir", join(dir, "real")], {})).code, 0);
+    assert.ok(existsSync(join(dir, "real", "agentic-physics", "SKILL.md")));
   });
 });

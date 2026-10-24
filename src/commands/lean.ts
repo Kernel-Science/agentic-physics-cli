@@ -1,9 +1,8 @@
-import { writeFile } from "node:fs/promises";
-
 import { Api } from "../api.js";
 import { DOMAINS, domain, oneLine, positiveInt, printJson, str, type Command } from "../cli.js";
 import { resolveAuth } from "../config.js";
 import { EXIT, UsageError } from "../errors.js";
+import { requireLean, writeNewLeanFile } from "../files.js";
 import { readSource } from "../lean.js";
 import type { Formalized, LeanCheckResult, SearchResult } from "../types.js";
 
@@ -45,13 +44,16 @@ Options:
   --domain D        ${DOMAINS.join(", ")}
                     (default: general)
   --title T         A short name for it.
-  -o, --output F    Write the statement to F (imports and theorem), ready
-                    for \`agentic-physics prove F\`.
+  -o, --output F    Write the statement to F, a new .lean file (imports and
+                    theorem), ready for \`agentic-physics prove F\`. An
+                    existing file is never overwritten.
   --json            Print the console's answer as JSON.
 
 Exit codes: 0 a statement Lean accepts; 4 Lean rejected it, or the review
 says it is not what was asked; 1 any other failure.`,
   async run({ values, positionals }, io) {
+    const output = str(values.output);
+    if (output) requireLean(output, "-o");
     const description = await prose(positionals, io, "the physics");
     const api = new Api(resolveAuth(io.env));
     const result = await api.json<Formalized>("/api/agentic/formalize", {
@@ -60,8 +62,7 @@ says it is not what was asked; 1 any other failure.`,
     });
     const imports = (result.lean_imports ?? []).filter((line) => line.trim());
     const source = [...imports, ...(imports.length ? [""] : []), result.lean_theorem.trim(), ""].join("\n");
-    const output = str(values.output);
-    if (output) await writeFile(output, source);
+    if (output) await writeNewLeanFile(output, source);
 
     const rejected = result.elaborates === false || result.review?.verdict === "reject";
     if (values.json) {
@@ -121,6 +122,8 @@ Exit codes: 0 no errors (warnings, \`sorry\` included, are not errors);
 4 Lean reported errors; 1 any other failure.`,
   async run({ values, positionals }, io) {
     if (positionals.length > 1) throw new UsageError("Check one file at a time.");
+    // only Lean is sent to the console: `check ~/.ssh/id_ed25519` is refused before it is read
+    if (positionals[0] && positionals[0] !== "-") requireLean(positionals[0], "The file to check");
     const { text, label } = await readSource(positionals[0], undefined, io.stdin);
     if (!text.trim()) throw new UsageError(`${label} is empty.`);
     const api = new Api(resolveAuth(io.env));

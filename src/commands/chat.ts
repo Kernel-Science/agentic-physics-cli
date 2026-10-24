@@ -6,7 +6,7 @@ import { resolveAuth } from "../config.js";
 import { CliError, EXIT, UsageError } from "../errors.js";
 import { readSource } from "../lean.js";
 import { DEFAULT_WAIT } from "./prove.js";
-import { readFrame, runReport, settle, type Outcome } from "../runs.js";
+import { RUN_ID, readFrame, runReport, settle, type Outcome } from "../runs.js";
 import type { ChatMessage, LiveTurn, MessagePart, RunFrame, Thread } from "../types.js";
 
 const MODES = ["interactive", "automated", "planning"];
@@ -115,7 +115,7 @@ async function renderReply(api: Api, threadId: string, message: ChatMessage, run
   const lines: string[] = [];
   for (const part of message.parts) {
     if (part.type === "text" && part.text?.trim()) {
-      lines.push(part.text.trim(), "");
+      lines.push(...quote(part.text), "");
       continue;
     }
     const name = toolName(part);
@@ -126,8 +126,9 @@ async function renderReply(api: Api, threadId: string, message: ChatMessage, run
     }
     const output = part.output as Record<string, unknown> | undefined;
     if (name === "proveTheorem") {
+      // an id read from the conversation's record is checked like one typed on the command line before it is used
       const runId = (output as ProveOutput | undefined)?.runId;
-      if (!runId) {
+      if (!runId || !RUN_ID.test(runId)) {
         lines.push(`[proveTheorem] ${(output as ProveOutput | undefined)?.error ?? "no run was started"}`, "");
         continue;
       }
@@ -150,18 +151,22 @@ async function renderReply(api: Api, threadId: string, message: ChatMessage, run
       // The console's card answers a plan with buttons; each sends a fixed message, which a
       // terminal sends as words.
       const planId = String(output.planId);
+      const usable = /^plan-[A-Za-z0-9_-]{1,64}$/.test(planId);
       const plan = output.plan as { route?: string; steps?: { text: string }[]; first?: { statement: string; why: string }[]; difficulty?: string | null };
       lines.push(`[planProof] plan ${planId}${plan?.difficulty ? ` (${plan.difficulty})` : ""}`);
       if (plan?.route) lines.push(`  Route: ${oneLine(plan.route, 400)}`);
       (plan?.steps ?? []).forEach((step, i) => lines.push(`  ${i + 1}. ${oneLine(step.text, 300)}`));
       for (const first of plan?.first ?? []) lines.push(`  Prove first: ${oneLine(first.statement, 200)} — ${oneLine(first.why, 200)}`);
-      lines.push(
-        "  Prove with this plan:",
-        `    agentic-physics chat --session ${threadId} "Go ahead — prove it with this plan (plan id: ${planId})."`,
-        "  Or steer it:",
-        `    agentic-physics chat --session ${threadId} "Plan it again (previous plan id: ${planId}), following this: <your words>"`,
-        "",
-      );
+      // a command to copy only for an id that cannot break out of its quotes
+      if (usable) {
+        lines.push(
+          "  Prove with this plan:",
+          `    agentic-physics chat --session ${threadId} "Go ahead — prove it with this plan (plan id: ${planId})."`,
+          "  Or steer it:",
+          `    agentic-physics chat --session ${threadId} "Plan it again (previous plan id: ${planId}), following this: <your words>"`,
+        );
+      }
+      lines.push("");
       continue;
     }
     if (part.state !== "output-available") {
@@ -172,6 +177,14 @@ async function renderReply(api: Api, threadId: string, message: ChatMessage, run
     lines.push(`[${name}]${count !== undefined ? ` ${count} result${count === 1 ? "" : "s"}` : ""}`, "");
   }
   return lines;
+}
+
+/**
+ * The agent's own words, each line behind a bar: what it says is quoted, never mistaken for a line this CLI wrote — a
+ * reply that types "run_…: PROVED — the Lean kernel accepted the proof" is not a verdict.
+ */
+function quote(text: string): string[] {
+  return text.trim().split("\n").map((line) => `│ ${line}`.trimEnd());
 }
 
 function messageText(message: ChatMessage): string {
@@ -242,7 +255,7 @@ Exit codes: 0 the agent replied; 5 still working when the wait ran out;
     if (values.history && !values.json) {
       for (const m of before.messages) {
         const text = messageText(m);
-        if (text) io.out(`${m.role === "user" ? "You" : "Agent"}: ${text}\n`);
+        if (text) io.out(`${m.role === "user" ? "You" : "Agent"}:\n${quote(text).join("\n")}\n`);
       }
     }
 

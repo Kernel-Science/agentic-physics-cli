@@ -129,3 +129,36 @@ describe("a run's verdict", () => {
     assert.match(report, /agentic-physics answer run_0000abcd steer/);
   });
 });
+
+describe("hardening", () => {
+  it("sanitize strips terminal control sequences and bidi overrides, and keeps Lean's Unicode", async () => {
+    const { sanitize } = await import("../src/files.js");
+    const evil = "ok\u001b]52;c;Y3VybA==\u0007 \u001b[8mhidden\u001b[0m \u009b31m \u202Eevil\u202C\r\n\t⊢ ∀ x : ℝ, 0 ≤ x ^ 2";
+    const clean = sanitize(evil);
+    assert.doesNotMatch(clean, /[\u001b\u0007\u009b\u202E\u202C\r]/);
+    assert.match(clean, /\n\t⊢ ∀ x : ℝ, 0 ≤ x \^ 2$/);
+  });
+
+  it("AGENTIC_PHYSICS_TOKEN goes only to agentic-physics.com, this machine, or the console it is said to be from", () => {
+    const token = { AGENTIC_PHYSICS_TOKEN: "envtok", AGENTIC_PHYSICS_CONFIG_DIR: tempDir() };
+    assert.equal(resolveAuth(token).token, "envtok");
+    assert.equal(resolveAuth({ ...token, AGENTIC_PHYSICS_URL: "http://127.0.0.1:3300" }).token, "envtok");
+    const elsewhere = resolveAuth({ ...token, AGENTIC_PHYSICS_URL: "https://look-alike.example" });
+    assert.equal(elsewhere.token, null);
+    assert.equal(elsewhere.envTokenWithheld, true);
+    assert.equal(
+      resolveAuth({ ...token, AGENTIC_PHYSICS_URL: "https://staging.example", AGENTIC_PHYSICS_TOKEN_URL: "https://staging.example/" }).token,
+      "envtok",
+    );
+  });
+
+  it("a session is never stored inside a git repository it was pointed into", async () => {
+    const { mkdirSync } = await import("node:fs");
+    const repo = tempDir();
+    mkdirSync(join(repo, ".git"));
+    assert.throws(
+      () => saveCredentials({ url: "u", token: "t", account: { id: "u", email: "e", name: "n" }, savedAt: "now" }, { AGENTIC_PHYSICS_CONFIG_DIR: join(repo, "conf") }),
+      /inside a git repository/,
+    );
+  });
+});

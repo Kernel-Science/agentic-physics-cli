@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -38,8 +39,17 @@ Options:
     }
     if (action !== "install") throw new UsageError("Say `skill install` or `skill show`.");
 
-    const skills = str(values.dir) ?? join(values.global ? homedir() : process.cwd(), ".claude", "skills");
+    const dir = str(values.dir);
+    const base = dir ?? join(values.global ? homedir() : process.cwd(), ".claude");
+    const skills = dir ?? join(base, "skills");
     const target = join(skills, "agentic-physics", "SKILL.md");
+    // Run inside a cloned repository, any of these could be a link planted to send the write elsewhere (to
+    // ~/.claude/settings.json, say), so none is followed. Your own ~/.claude may well be a link to your dotfiles.
+    const project = !dir && !values.global;
+    for (const path of [...(project ? [base, skills] : []), dirname(target), target]) {
+      const stat = await lstat(path).catch(() => null);
+      if (stat?.isSymbolicLink()) throw new CliError(`${path} is a symbolic link; the skill is not written through one.`);
+    }
     const existing = await readFile(target, "utf8").catch(() => null);
     if (existing === text) {
       io.out(`The skill is already installed at ${target}.`);
@@ -49,7 +59,10 @@ Options:
       throw new CliError(`${target} exists and differs from this version's skill. --force replaces it.`);
     }
     await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, text);
+    // a new file beside it, renamed over it: a rename replaces a name, it never writes through one
+    const temporary = `${target}.${randomBytes(6).toString("hex")}.tmp`;
+    await writeFile(temporary, text, { flag: "wx" });
+    await rename(temporary, target);
     io.out(`Installed the skill at ${target}.`);
     io.err(
       values.global || values.dir
