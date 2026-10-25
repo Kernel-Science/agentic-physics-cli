@@ -184,14 +184,14 @@ agentic-physics prove thm.lean -d "…" --mode interactive    # ask me before pr
 agentic-physics prove thm.lean -d "…" --mode automated      # the decomposing prover
 ```
 
-- **Default.** The prover writes whole proofs, with the kernel's feedback, while a tactic search races it. When the writer needs an intermediate lemma, it proves that lemma as a sub-run on its own.
+- **Default (recommended starting point).** The prover writes whole proofs, with the kernel's feedback, while a tactic search races it. It handles multi-step statements too: when the writer needs an intermediate lemma, it proves that lemma as a sub-run on its own.
 - **`--mode interactive`.** Like the default, but before proving such a lemma the run pauses and asks you. `status` shows the question; answer it with one of:
   ```bash
   agentic-physics answer run_… accept                    # prove the lemma first, then go on
   agentic-physics answer run_… steer "use the work–energy theorem instead"
   agentic-physics answer run_… stop
   ```
-- **`--mode automated`.** The decomposing prover: a blueprint of subgoals, proved one by one, revised when one fails, for up to 16 minutes. Use it for statements that need several steps.
+- **`--mode automated`.** An alternative prover that builds a blueprint of subgoals, proves them one by one, and revises the blueprint when one fails. Production allows up to 60 minutes. Choose it when you want this decomposition workflow; after a failure, inspect the reason and the statement before retrying or switching modes.
 
 Your runs, from every place you prove (the console, VS Code, the desktop app, this CLI):
 

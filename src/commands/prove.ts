@@ -94,9 +94,10 @@ Options:
   --mode M            interactive: when the prover needs an intermediate
                         lemma it pauses and asks you (see \`answer\`).
                       automated: the decomposing prover — a blueprint of
-                        subgoals, retried and revised, up to 16 minutes.
-                      Default: neither; needed lemmas are proved on their
-                      own as sub-runs, nothing is asked.
+                        subgoals, retried and revised, up to 60 minutes
+                        in production. An alternative to the default.
+                      Default (recommended): whole proofs and tactic
+                        search; needed lemmas are proved as sub-runs.
   ${WAIT_HELP.replace("WAIT", String(DEFAULT_WAIT))}
   -o, --output F      Write the proof to F, a new .lean file, if the kernel
                       accepts one. An existing file is never overwritten.
