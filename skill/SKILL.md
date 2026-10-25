@@ -44,7 +44,7 @@ EOF
    - **5 — still running.** `agentic-physics status <run_id> --wait 540`.
    - **6 — the run asks a question** (only with `--mode interactive`). Show the user the question and the options. Answer with `agentic-physics answer <run_id> accept`, `stop`, or `steer "<words>"` once they decide, or when they told you to decide.
    - **3** — not signed in (see above). **1** — an error; the message says which.
-4. **After a failure, think before retrying.** A statement can be false as written, miss a hypothesis, or need a simpler lemma proved first. `--mode automated` runs the decomposing prover (subgoals, revisions, up to 16 minutes) for statements that need several steps.
+4. **After a failure, think before retrying.** A statement can be false as written, miss a hypothesis, or need a simpler lemma proved first. Start with the default mode: it can prove multi-step statements and proves needed lemmas as sub-runs. Use `--mode automated` when you specifically want the alternative blueprint-and-subgoal prover; production allows it up to 60 minutes. A failure alone is not a reason to switch modes.
 
 ## Talking to the agent
 
